@@ -25,9 +25,13 @@ public class JsonController {
     public ResponseEntity create(@RequestBody String reqJSON, WebRequest request) throws FileNotFoundException {
         JSONObject req = new JSONObject(reqJSON);
         //validate the JSON schema
-//        JsonSchemaValidator schemaValidator = new JsonSchemaValidator();
-//        boolean res = schemaValidator.validateSchema(user);
-
+        JsonSchemaValidator schemaValidator = new JsonSchemaValidator();
+        boolean res = schemaValidator.validateSchema(req);
+        if(res == false){
+            return ResponseEntity
+                    .badRequest()
+                    .body("Wrong Format");
+        }
 
         //set hashcode as etag.
         String etag = String.valueOf(req.toString().hashCode());
@@ -95,21 +99,28 @@ public class JsonController {
 
     @RequestMapping(path = "/demo/{key}", method = RequestMethod.PUT, produces = "application/json", consumes = "application/json")
     @ResponseBody
-    public ResponseEntity update(@PathVariable("key") String key, WebRequest request, @RequestBody String reqJSON){
+    public ResponseEntity update(@PathVariable("key") String key, WebRequest request, @RequestBody String reqJSON) throws FileNotFoundException {
         RedisOps ops = new RedisOps();
         JSONObject res = ops.getHash(key);
 
         //check key whether exists
-        if(res == null){
+        if(res == null || key.equals("")){
             return ResponseEntity
                     .notFound()
                     .build();
         }
 
-        JSONObject req = new JSONObject(reqJSON);
+
         //validate the JSON schema
-//        JsonSchemaValidator schemaValidator = new JsonSchemaValidator();
-//        boolean res = schemaValidator.validateSchema(user);
+        JSONObject req = new JSONObject(reqJSON);
+        JsonSchemaValidator schemaValidator = new JsonSchemaValidator();
+        boolean validRes = schemaValidator.validateSchema(req);
+        if(validRes == false){
+            return ResponseEntity
+                    .badRequest()
+                    .body("Wrong Format");
+        }
+
 
         //set hashcode as etag.
         String etag = String.valueOf(req.toString().hashCode());
@@ -117,11 +128,25 @@ public class JsonController {
         //check etag
         String ifNoneMatch = request.getHeader("If-None-Match");
         if(request.checkNotModified(ifNoneMatch)){
+//            System.out.println(ifNoneMatch);
             return null;
         }
 
-        //update ops
 
+        /*
+        Store the following JSON string into Redis
+        JSON contents: planCostShares,linkedPlanServices,_org,objectId,objectType,planType,creationDate
+         */
+
+        JSONObject planCostShares = req.getJSONObject("planCostShares");
+        JSONArray linkedPlanServices = req.getJSONArray("linkedPlanServices");
+        ops.setHash(key, "planCostShares", JSONObject.valueToString(planCostShares));
+        ops.setHash(key, "linkedPlanServices", linkedPlanServices.toString());
+        ops.setHash(key, "_org", req.getString("_org"));
+        ops.setHash(key, "objectId", req.getString("objectId"));
+        ops.setHash(key, "objectType", req.getString("objectType"));
+        ops.setHash(key, "planType", req.getString("planType"));
+        ops.setHash(key, "creationDate", req.getString("creationDate"));
 
         return ResponseEntity
                 .created(URI.create(request.getContextPath()))
@@ -132,7 +157,7 @@ public class JsonController {
 
     @RequestMapping(path = "/demo/{key}", method = RequestMethod.DELETE, produces = "application/json")
     @ResponseBody
-    public ResponseEntity update(@PathVariable("key") String key, WebRequest request) {
+    public ResponseEntity delete(@PathVariable("key") String key, WebRequest request) {
         RedisOps ops = new RedisOps();
         JSONObject res = ops.getHash(key);
 
@@ -143,7 +168,7 @@ public class JsonController {
                     .build();
         }
 
-        //delete ops
+        ops.delHash(key);
 
         return ResponseEntity
                 .noContent()

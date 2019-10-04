@@ -37,9 +37,19 @@ public class RedisOps {
             res.put("objectType", jedis.hget(key, "objectType"));
             res.put("planType", jedis.hget(key, "planType"));
             res.put("creationDate", jedis.hget(key, "creationDate"));
-            return res;
         }
+        jedis.close();
+        return res;
     }
+
+    public int delHash(String key){
+        Jedis jedis = RedisConnection.getJedis();
+        jedis.del(key);
+        jedis.close();
+        return 1;
+    }
+
+
 
 
 }

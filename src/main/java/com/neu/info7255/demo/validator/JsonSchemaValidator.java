@@ -14,7 +14,7 @@ import java.io.InputStream;
 
 public class JsonSchemaValidator {
     public boolean validateSchema(JSONObject data) throws FileNotFoundException {
-        InputStream inputStream = getClass().getResourceAsStream("/json/schema.json");
+        InputStream inputStream = getClass().getResourceAsStream("/json/use case schema.json");
         JSONObject schemaJson = new JSONObject(new JSONTokener(inputStream));
         Schema schema = SchemaLoader.load(schemaJson);
         try {
