@@ -25,16 +25,20 @@ public class RedisOps {
             planType
             creationDate
          */
-        JSONObject planCostShares = new JSONObject(jedis.hget(key,"planCostShares"));
-        JSONArray linkedPlanServices = new JSONArray(jedis.hget(key, "linkedPlanServices"));
-        res.put("planCostShares", planCostShares);
-        res.put("linkedPlanServices",linkedPlanServices);
-        res.put("_org", jedis.hget(key, "_org"));
-        res.put("objectId", jedis.hget(key, "objectId"));
-        res.put("objectType", jedis.hget(key, "objectType"));
-        res.put("planType", jedis.hget(key, "planType"));
-        res.put("creationDate", jedis.hget(key, "creationDate"));
-        return res;
+        if(jedis.keys(key).size() == 0){
+            return null;
+        }else {
+            JSONObject planCostShares = new JSONObject(jedis.hget(key, "planCostShares"));
+            JSONArray linkedPlanServices = new JSONArray(jedis.hget(key, "linkedPlanServices"));
+            res.put("planCostShares", planCostShares);
+            res.put("linkedPlanServices", linkedPlanServices);
+            res.put("_org", jedis.hget(key, "_org"));
+            res.put("objectId", jedis.hget(key, "objectId"));
+            res.put("objectType", jedis.hget(key, "objectType"));
+            res.put("planType", jedis.hget(key, "planType"));
+            res.put("creationDate", jedis.hget(key, "creationDate"));
+            return res;
+        }
     }
 
 
