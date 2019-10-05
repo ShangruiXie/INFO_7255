@@ -15,6 +15,7 @@ import org.springframework.web.context.request.WebRequest;
 import javax.servlet.http.HttpServletRequest;
 import java.io.FileNotFoundException;
 import java.net.URI;
+import java.security.MessageDigest;
 import java.util.concurrent.TimeUnit;
 
 @RestController
@@ -24,6 +25,7 @@ public class JsonController {
     @ResponseBody
     public ResponseEntity create(@RequestBody String reqJSON, WebRequest request) throws FileNotFoundException {
         JSONObject req = new JSONObject(reqJSON);
+        RedisOps ops = new RedisOps();
         //validate the JSON schema
         JsonSchemaValidator schemaValidator = new JsonSchemaValidator();
         boolean res = schemaValidator.validateSchema(req);
@@ -33,8 +35,11 @@ public class JsonController {
                     .body("Wrong Format");
         }
 
+        String key = req.getString("objectId");
+
         //set hashcode as etag.
-        String etag = String.valueOf(req.toString().hashCode());
+//        String etag = String.valueOf(req.toString().hashCode());
+        String etag = getMD5(req.toString());
 //        System.out.println(etag);
 
         //check etag
@@ -49,12 +54,12 @@ public class JsonController {
         Store the following JSON string into Redis
         JSON contents: planCostShares,linkedPlanServices,_org,objectId,objectType,planType,creationDate
          */
-        String key = req.getString("objectId");
+
 
         JSONObject planCostShares = req.getJSONObject("planCostShares");
         JSONArray linkedPlanServices = req.getJSONArray("linkedPlanServices");
 
-        RedisOps ops = new RedisOps();
+
         ops.setHash(key, "planCostShares", JSONObject.valueToString(planCostShares));
         ops.setHash(key, "linkedPlanServices", linkedPlanServices.toString());
         ops.setHash(key, "_org", req.getString("_org"));
@@ -88,7 +93,8 @@ public class JsonController {
             return null;
         }
 
-        String etag = String.valueOf(res.toString().hashCode());
+//        String etag = String.valueOf(res.toString().hashCode());
+        String etag = getMD5(res.toString());
         return ResponseEntity
                 .ok()
                 .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS))
@@ -123,7 +129,8 @@ public class JsonController {
 
 
         //set hashcode as etag.
-        String etag = String.valueOf(req.toString().hashCode());
+//        String etag = String.valueOf(req.toString().hashCode());
+        String etag = getMD5(req.toString());
 
         //check etag
         String ifNoneMatch = request.getHeader("If-None-Match");
@@ -174,4 +181,36 @@ public class JsonController {
                 .noContent()
                 .build();
     }
+
+    public static String getMD5(String message) {
+        String md5str = "";
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] input = message.getBytes();
+            byte[] buff = md.digest(input);
+            md5str = bytesToHex(buff);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return md5str;
+    }
+
+    public static String bytesToHex(byte[] bytes) {
+        StringBuffer md5str = new StringBuffer();
+        int digital;
+        for (int i = 0; i < bytes.length; i++) {
+            digital = bytes[i];
+
+            if (digital < 0) {
+                digital += 256;
+            }
+            if (digital < 16) {
+                md5str.append("0");
+            }
+            md5str.append(Integer.toHexString(digital));
+        }
+        return md5str.toString().toLowerCase();
+    }
+
 }
