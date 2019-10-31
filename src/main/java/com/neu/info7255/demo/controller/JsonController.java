@@ -218,41 +218,10 @@ public class JsonController {
             return null;
         }
         //patch
+        JsonObjOps jsonPatch = new JsonObjOps();
         JSONObject req = new JSONObject(reqJSON);
         //op could be add, replace, remove, move, copy, test
-        for (String jsonKey: req.keySet()){
-            String op = "";
-            switch (jsonKey){
-                case "op":{
-                    op = req.getString("op");
-                }
-                case "planCostShares":{
-
-                    break;
-                }
-                case "linkedPlanServices":{
-                    break;
-                }
-                case "_org":{
-                    break;
-                }
-                case "objectId":{
-                    break;
-                }
-                case "objectType":{
-                    break;
-                }
-                case "planType":{
-                    break;
-                }
-                case "creationDate":{
-                    break;
-                }
-            }
-        }
-
-
-
+        jsonPatch.patchPlan(req, key);
 
         //set etag
         JsonObjOps jsonGet = new JsonObjOps();
