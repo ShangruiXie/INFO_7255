@@ -12,31 +12,25 @@ public class RedisOps {
         jedis.close();
     }
 
-    public JSONObject getHash(String key){
+    public String getHash(String key, String field){
         Jedis jedis = RedisConnection.getJedis();
-        JSONObject res = new JSONObject();
-        /*
-        JSON contents:
-            planCostShares
-            linkedPlanServices
-            _org
-            objectId
-            objectType
-            planType
-            creationDate
-         */
+        String res;
         if(jedis.keys(key).size() == 0){
             return null;
         }else {
-            JSONObject planCostShares = new JSONObject(jedis.hget(key, "planCostShares"));
-            JSONArray linkedPlanServices = new JSONArray(jedis.hget(key, "linkedPlanServices"));
-            res.put("planCostShares", planCostShares);
-            res.put("linkedPlanServices", linkedPlanServices);
-            res.put("_org", jedis.hget(key, "_org"));
-            res.put("objectId", jedis.hget(key, "objectId"));
-            res.put("objectType", jedis.hget(key, "objectType"));
-            res.put("planType", jedis.hget(key, "planType"));
-            res.put("creationDate", jedis.hget(key, "creationDate"));
+            res = jedis.hget(key, field);
+        }
+        jedis.close();
+        return res;
+    }
+
+    public boolean getKey(String key){
+        Jedis jedis = RedisConnection.getJedis();
+        Boolean res;
+        if(jedis.keys(key).size() == 0){
+            res = false;
+        }else {
+            res = true;
         }
         jedis.close();
         return res;

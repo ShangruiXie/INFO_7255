@@ -1,31 +1,32 @@
 package com.neu.info7255.demo.controller;
 
-import com.neu.info7255.demo.dao.RedisConnection;
+import com.neu.info7255.demo.dao.JsonObjOps;
 import com.neu.info7255.demo.dao.RedisOps;
 import com.neu.info7255.demo.validator.JsonSchemaValidator;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.http.CacheControl;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.WebRequest;
 
 
-import javax.servlet.http.HttpServletRequest;
 import java.io.FileNotFoundException;
 import java.net.URI;
 import java.security.MessageDigest;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 @RestController
 public class JsonController {
 
-    @RequestMapping(path = "/demo", method = RequestMethod.POST, consumes = "application/json", produces = "application/json")
+    @RequestMapping(path = "/plan", method = RequestMethod.POST, consumes = "application/json", produces = "application/json")
     @ResponseBody
     public ResponseEntity create(@RequestBody String reqJSON, WebRequest request) throws FileNotFoundException {
         JSONObject req = new JSONObject(reqJSON);
-        RedisOps ops = new RedisOps();
         //validate the JSON schema
         JsonSchemaValidator schemaValidator = new JsonSchemaValidator();
         boolean res = schemaValidator.validateSchema(req);
@@ -34,39 +35,49 @@ public class JsonController {
                     .badRequest()
                     .body("Wrong Format");
         }
-
-        String key = req.getString("objectId");
-
         //set hashcode as etag.
-//        String etag = String.valueOf(req.toString().hashCode());
         String etag = getMD5(req.toString());
-//        System.out.println(etag);
-
         //check etag
         String ifNoneMatch = request.getHeader("If-None-Match");
         if(request.checkNotModified(ifNoneMatch)){
-//            System.out.println(ifNoneMatch);
             return null;
         }
-
-
         /*
         Store the following JSON string into Redis
-        JSON contents: planCostShares,linkedPlanServices,_org,objectId,objectType,planType,creationDate
+        the key is "obj type" + "obj id"
          */
-
-
+        JsonObjOps jsonStore = new JsonObjOps();
+        //add planCostShares
         JSONObject planCostShares = req.getJSONObject("planCostShares");
+        String planCostSharesKey = planCostShares.getString("objectType") + "__" + planCostShares.getString("objectId");
+        jsonStore.addMembercostshare(planCostShares, planCostSharesKey);
+        //add linkedPlanService
         JSONArray linkedPlanServices = req.getJSONArray("linkedPlanServices");
-
-
-        ops.setHash(key, "planCostShares", JSONObject.valueToString(planCostShares));
-        ops.setHash(key, "linkedPlanServices", linkedPlanServices.toString());
-        ops.setHash(key, "_org", req.getString("_org"));
-        ops.setHash(key, "objectId", req.getString("objectId"));
-        ops.setHash(key, "objectType", req.getString("objectType"));
-        ops.setHash(key, "planType", req.getString("planType"));
-        ops.setHash(key, "creationDate", req.getString("creationDate"));
+        String linkedPlanServicesKey = "[";
+        for(int i = 0; i < linkedPlanServices.length(); i++){
+            JSONObject planservice = linkedPlanServices.getJSONObject(i);
+            //store linkedService
+            JSONObject linkedService = planservice.getJSONObject("linkedService");
+            String linkedServiceKey = linkedService.getString("objectType") + "__" + linkedService.getString("objectId");
+            jsonStore.addService(linkedService, linkedServiceKey);
+            //store planserviceCostShares
+            JSONObject planserviceCostShares = planservice.getJSONObject("planserviceCostShares");
+            String planserviceCostSharesKey = planserviceCostShares.getString("objectType") + "__" + planserviceCostShares.getString("objectId");
+            jsonStore.addMembercostshare(planserviceCostShares, planserviceCostSharesKey);
+            //store linkedPlanService
+            String planserviceKey = planservice.getString("objectType") + "__" + planservice.getString("objectId");
+            jsonStore.addPlanservice(planservice, planserviceKey, linkedServiceKey, planserviceCostSharesKey);
+            //get linkedPlanService key list
+            if(i == linkedPlanServices.length() - 1){
+                linkedPlanServicesKey += planserviceKey;
+            }else {
+                linkedPlanServicesKey += planserviceKey + ",";
+            }
+        }
+        linkedPlanServicesKey += "]";
+        //add plan
+        String planKey = req.getString("objectType") + "__" + req.getString("objectId");
+        jsonStore.addPlan(req, planKey, planCostSharesKey, linkedPlanServicesKey);
 
         return ResponseEntity
                 .created(URI.create(request.getContextPath()))
@@ -75,25 +86,26 @@ public class JsonController {
                 .body(reqJSON);
     }
 
-    @RequestMapping(path = "/demo/{key}", method = RequestMethod.GET, produces = "application/json")
+
+
+    @RequestMapping(path = "/plan/{key}", method = RequestMethod.GET, produces = "application/json")
     @ResponseBody
     public ResponseEntity get(@PathVariable("key") String key, WebRequest request) {
         RedisOps ops = new RedisOps();
-        JSONObject res = ops.getHash(key);
-
-        if(res == null){
+        //check key whether is exist
+        key = "plan__" + key;
+        Boolean isKey = ops.getKey(key);
+        if(isKey == false){
             return ResponseEntity
                     .notFound()
                     .build();
         }
-
         String ifNoneMatch = request.getHeader("If-None-Match");
         if(request.checkNotModified(ifNoneMatch)){
-//            System.out.println(ifNoneMatch);
             return null;
         }
-
-//        String etag = String.valueOf(res.toString().hashCode());
+        JsonObjOps jsonGet = new JsonObjOps();
+        JSONObject res = jsonGet.getPlan(key);
         String etag = getMD5(res.toString());
         return ResponseEntity
                 .ok()
@@ -103,57 +115,73 @@ public class JsonController {
 
     }
 
-    @RequestMapping(path = "/demo/{key}", method = RequestMethod.PUT, produces = "application/json", consumes = "application/json")
+    @RequestMapping(path = "/plan/{key}", method = RequestMethod.PUT, produces = "application/json", consumes = "application/json")
     @ResponseBody
     public ResponseEntity update(@PathVariable("key") String key, WebRequest request, @RequestBody String reqJSON) throws FileNotFoundException {
         RedisOps ops = new RedisOps();
-        JSONObject res = ops.getHash(key);
-
-        //check key whether exists
-        if(res == null || key.equals("")){
+        //check key whether is exist
+        key = "plan__" + key;
+        Boolean isKey = ops.getKey(key);
+        if(isKey == false){
             return ResponseEntity
                     .notFound()
                     .build();
         }
-
-
-        //validate the JSON schema
         JSONObject req = new JSONObject(reqJSON);
+        //validate the JSON schema
         JsonSchemaValidator schemaValidator = new JsonSchemaValidator();
-        boolean validRes = schemaValidator.validateSchema(req);
-        if(validRes == false){
+        boolean res = schemaValidator.validateSchema(req);
+        if(res == false){
             return ResponseEntity
                     .badRequest()
                     .body("Wrong Format");
         }
-
-
         //set hashcode as etag.
-//        String etag = String.valueOf(req.toString().hashCode());
         String etag = getMD5(req.toString());
-
         //check etag
         String ifNoneMatch = request.getHeader("If-None-Match");
         if(request.checkNotModified(ifNoneMatch)){
-//            System.out.println(ifNoneMatch);
             return null;
         }
-
-
         /*
-        Store the following JSON string into Redis
-        JSON contents: planCostShares,linkedPlanServices,_org,objectId,objectType,planType,creationDate
+        update the following JSON string into Redis
+        the key is "obj type" + "obj id"
          */
-
+        JsonObjOps jsonStore = new JsonObjOps();
+        //delete old plan
+        jsonStore.deletePlan(key);
+        //add planCostShares
         JSONObject planCostShares = req.getJSONObject("planCostShares");
+        String planCostSharesKey = planCostShares.getString("objectType") + "__" + planCostShares.getString("objectId");
+        jsonStore.addMembercostshare(planCostShares, planCostSharesKey);
+        //add linkedPlanService
         JSONArray linkedPlanServices = req.getJSONArray("linkedPlanServices");
-        ops.setHash(key, "planCostShares", JSONObject.valueToString(planCostShares));
-        ops.setHash(key, "linkedPlanServices", linkedPlanServices.toString());
-        ops.setHash(key, "_org", req.getString("_org"));
-        ops.setHash(key, "objectId", req.getString("objectId"));
-        ops.setHash(key, "objectType", req.getString("objectType"));
-        ops.setHash(key, "planType", req.getString("planType"));
-        ops.setHash(key, "creationDate", req.getString("creationDate"));
+        String linkedPlanServicesKey = "[";
+        for(int i = 0; i < linkedPlanServices.length(); i++){
+            JSONObject planservice = linkedPlanServices.getJSONObject(i);
+            //store linkedService
+            JSONObject linkedService = planservice.getJSONObject("linkedService");
+            String linkedServiceKey = linkedService.getString("objectType") + "__" + linkedService.getString("objectId");
+            jsonStore.addService(linkedService, linkedServiceKey);
+            //store planserviceCostShares
+            JSONObject planserviceCostShares = planservice.getJSONObject("planserviceCostShares");
+            String planserviceCostSharesKey = planserviceCostShares.getString("objectType") + "__" + planserviceCostShares.getString("objectId");
+            jsonStore.addMembercostshare(planserviceCostShares, planserviceCostSharesKey);
+            //store linkedPlanService
+            String planserviceKey = planservice.getString("objectType") + "__" + planservice.getString("objectId");
+            jsonStore.addPlanservice(planservice, planserviceKey, linkedServiceKey, planserviceCostSharesKey);
+            //get linkedPlanService key list
+            if(i == linkedPlanServices.length() - 1){
+                linkedPlanServicesKey += planserviceKey;
+            }else {
+                linkedPlanServicesKey += planserviceKey + ",";
+            }
+        }
+        linkedPlanServicesKey += "]";
+        //add plan
+        String planKey = req.getString("objectType") + "__" + req.getString("objectId");
+        jsonStore.addPlan(req, planKey, planCostSharesKey, linkedPlanServicesKey);
+
 
         return ResponseEntity
                 .created(URI.create(request.getContextPath()))
@@ -162,21 +190,98 @@ public class JsonController {
                 .body(reqJSON);
     }
 
-    @RequestMapping(path = "/demo/{key}", method = RequestMethod.DELETE, produces = "application/json")
+    @RequestMapping(path = "/plan/{key}", method = RequestMethod.PATCH, produces = "application/json")
     @ResponseBody
-    public ResponseEntity delete(@PathVariable("key") String key, WebRequest request) {
+    public ResponseEntity patch(@PathVariable("key") String key, WebRequest request, @RequestBody String reqJSON) throws FileNotFoundException {
         RedisOps ops = new RedisOps();
-        JSONObject res = ops.getHash(key);
-
-        //check key whether exists
-        if(res == null){
+        //check key whether is exist
+        key = "plan__" + key;
+        Boolean isKey = ops.getKey(key);
+        if(isKey == false){
             return ResponseEntity
                     .notFound()
                     .build();
         }
+//        JSONObject req = new JSONObject(reqJSON);
+//        //validate the JSON schema
+//        JsonSchemaValidator schemaValidator = new JsonSchemaValidator();
+//        boolean res = schemaValidator.validateSchema(req);
+//        if(res == false){
+//            return ResponseEntity
+//                    .badRequest()
+//                    .body("Wrong Format");
+//        }
 
+        //check etag
+        String ifNoneMatch = request.getHeader("If-None-Match");
+        if(request.checkNotModified(ifNoneMatch)){
+            return null;
+        }
+        //patch
+        JSONObject req = new JSONObject(reqJSON);
+        //op could be add, replace, remove, move, copy, test
+        for (String jsonKey: req.keySet()){
+            String op = "";
+            switch (jsonKey){
+                case "op":{
+                    op = req.getString("op");
+                }
+                case "planCostShares":{
+
+                    break;
+                }
+                case "linkedPlanServices":{
+                    break;
+                }
+                case "_org":{
+                    break;
+                }
+                case "objectId":{
+                    break;
+                }
+                case "objectType":{
+                    break;
+                }
+                case "planType":{
+                    break;
+                }
+                case "creationDate":{
+                    break;
+                }
+            }
+        }
+
+
+
+
+        //set etag
+        JsonObjOps jsonGet = new JsonObjOps();
+        JSONObject res = jsonGet.getPlan(key);
+        String etag = getMD5(res.toString());
+        return ResponseEntity
+                .created(URI.create(request.getContextPath()))
+                .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS))
+                .eTag(etag)
+                .body(res.toString());
+    }
+
+    @RequestMapping(path = "/plan/{key}", method = RequestMethod.DELETE, produces = "application/json")
+    @ResponseBody
+    public ResponseEntity delete(@PathVariable("key") String key, WebRequest request) {
+        RedisOps ops = new RedisOps();
+        //check key whether is exist
+        key = "plan__" + key;
+        Boolean isKey = ops.getKey(key);
+        if(isKey == false){
+            return ResponseEntity
+                    .notFound()
+                    .build();
+        }
+        String ifNoneMatch = request.getHeader("If-None-Match");
+        if(request.checkNotModified(ifNoneMatch)){
+            return null;
+        }
         ops.delHash(key);
-
         return ResponseEntity
                 .noContent()
                 .build();
