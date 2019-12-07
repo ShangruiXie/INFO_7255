@@ -2,9 +2,12 @@ package com.neu.info7255.demo.controller;
 
 import com.neu.info7255.demo.dao.JsonObjOps;
 import com.neu.info7255.demo.dao.RedisOps;
+import com.neu.info7255.demo.service.ESEvent;
 import com.neu.info7255.demo.validator.JsonSchemaValidator;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +15,7 @@ import org.springframework.web.context.request.WebRequest;
 
 
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.util.Arrays;
@@ -22,6 +26,9 @@ import java.util.concurrent.TimeUnit;
 
 @RestController
 public class JsonController {
+
+    @Autowired
+    ApplicationEventPublisher eventPublisher;
 
     @RequestMapping(path = "/plan", method = RequestMethod.POST, consumes = "application/json", produces = "application/json")
     @ResponseBody
@@ -79,12 +86,42 @@ public class JsonController {
         String planKey = req.getString("objectType") + "__" + req.getString("objectId");
         jsonStore.addPlan(req, planKey, planCostSharesKey, linkedPlanServicesKey);
 
+        ESEvent event = new ESEvent(this, reqJSON);
+        eventPublisher.publishEvent(event);
+
         return ResponseEntity
                 .created(URI.create(request.getContextPath()))
                 .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS))
                 .eTag(etag)
                 .body(reqJSON);
     }
+
+    @RequestMapping(path = "/plan/es/{id}", method = RequestMethod.GET, produces = "application/json")
+    @ResponseBody
+    public ResponseEntity getES(@PathVariable("id") String id, WebRequest request) throws IOException {
+        ESOps ops = new ESOps();
+        String res = ops.getDoc(id);
+
+        if(res == null){
+            return ResponseEntity
+                    .notFound()
+                    .build();
+        }
+
+        String ifNoneMatch = request.getHeader("If-None-Match");
+        if(request.checkNotModified(ifNoneMatch)){
+            return null;
+        }
+        String etag = getMD5(res);
+        return ResponseEntity
+                .ok()
+                .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS))
+                .eTag(etag)
+                .body(res);
+
+    }
+
+
 
 
 
@@ -227,6 +264,12 @@ public class JsonController {
         JsonObjOps jsonGet = new JsonObjOps();
         JSONObject res = jsonGet.getPlan(key);
         String etag = getMD5(res.toString());
+
+
+        JSONObject patRes = jsonGet.getPlan(key);
+        ESEvent event = new ESEvent(this, patRes.toString());
+        eventPublisher.publishEvent(event);
+
         return ResponseEntity
                 .created(URI.create(request.getContextPath()))
                 .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS))

@@ -43,6 +43,53 @@ public class RedisOps {
         return 1;
     }
 
+    public void lpush(String value){
+        Jedis jedis = RedisConnection.getJedis();
+        try{
+            jedis.lpush("queue", value);
+        }finally {
+            jedis.close();
+        }
+    }
+
+    public String rpoplpush(){
+        Jedis jedis = RedisConnection.getJedis();
+        try{
+            String res = jedis.rpoplpush("queue", "pending");
+            return res;
+        }finally {
+            jedis.close();
+        }
+    }
+
+    public void lrem(String value){
+        Jedis jedis = RedisConnection.getJedis();
+        try{
+            jedis.lrem("pending", 0, value);
+        }finally {
+            jedis.close();
+        }
+    }
+
+    public Long llen(){
+        Jedis jedis = RedisConnection.getJedis();
+        try{
+            Long len = jedis.llen("pending");
+            return len;
+        }finally {
+            jedis.close();
+        }
+    }
+
+    public String rpop(){
+        Jedis jedis = RedisConnection.getJedis();
+        try{
+            String res = jedis.rpop("pending");
+            return res;
+        }finally {
+            jedis.close();
+        }
+    }
 
 
 
