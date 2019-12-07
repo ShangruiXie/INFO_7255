@@ -1,25 +1,31 @@
 package com.neu.info7255.demo.controller;
 
-import com.neu.info7255.demo.dao.RedisConnection;
 import com.neu.info7255.demo.dao.RedisOps;
+import com.neu.info7255.demo.service.ESEvent;
 import com.neu.info7255.demo.validator.JsonSchemaValidator;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.CacheControl;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.ContextLoader;
 import org.springframework.web.context.request.WebRequest;
 
 
-import javax.servlet.http.HttpServletRequest;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.util.concurrent.TimeUnit;
 
 @RestController
 public class JsonController {
+
+    @Autowired
+    ApplicationEventPublisher eventPublisher;
+
 
     @RequestMapping(path = "/demo", method = RequestMethod.POST, consumes = "application/json", produces = "application/json")
     @ResponseBody
@@ -34,32 +40,20 @@ public class JsonController {
                     .badRequest()
                     .body("Wrong Format");
         }
-
         String key = req.getString("objectId");
-
         //set hashcode as etag.
-//        String etag = String.valueOf(req.toString().hashCode());
         String etag = getMD5(req.toString());
-//        System.out.println(etag);
-
         //check etag
         String ifNoneMatch = request.getHeader("If-None-Match");
         if(request.checkNotModified(ifNoneMatch)){
-//            System.out.println(ifNoneMatch);
             return null;
         }
-
-
         /*
         Store the following JSON string into Redis
         JSON contents: planCostShares,linkedPlanServices,_org,objectId,objectType,planType,creationDate
          */
-
-
         JSONObject planCostShares = req.getJSONObject("planCostShares");
         JSONArray linkedPlanServices = req.getJSONArray("linkedPlanServices");
-
-
         ops.setHash(key, "planCostShares", JSONObject.valueToString(planCostShares));
         ops.setHash(key, "linkedPlanServices", linkedPlanServices.toString());
         ops.setHash(key, "_org", req.getString("_org"));
@@ -68,11 +62,40 @@ public class JsonController {
         ops.setHash(key, "planType", req.getString("planType"));
         ops.setHash(key, "creationDate", req.getString("creationDate"));
 
+        ESEvent event = new ESEvent(this, reqJSON);
+        eventPublisher.publishEvent(event);
+
+
         return ResponseEntity
                 .created(URI.create(request.getContextPath()))
                 .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS))
                 .eTag(etag)
                 .body(reqJSON);
+    }
+
+    @RequestMapping(path = "/demo/es/{id}", method = RequestMethod.GET, produces = "application/json")
+    @ResponseBody
+    public ResponseEntity getES(@PathVariable("id") String id, WebRequest request) throws IOException {
+        ESOps ops = new ESOps();
+        String res = ops.getDoc(id);
+
+        if(res == null){
+            return ResponseEntity
+                    .notFound()
+                    .build();
+        }
+
+        String ifNoneMatch = request.getHeader("If-None-Match");
+        if(request.checkNotModified(ifNoneMatch)){
+            return null;
+        }
+        String etag = getMD5(res);
+        return ResponseEntity
+                .ok()
+                .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS))
+                .eTag(etag)
+                .body(res);
+
     }
 
     @RequestMapping(path = "/demo/{key}", method = RequestMethod.GET, produces = "application/json")
